@@ -47,3 +47,203 @@
 
 Это позволяет делать компоненты сменными как плагины, разрабатывать и разворачивать их независимо. В этом суть ООП для архитектора.
 
+### Глава 6: Функциональное программирование
+В этой главе Мартин описывает функциональную парадигму как третью основную (после структурной и объектно-ориентированной). Ключевой принцип — неизменяемость данных: переменные не меняют своё значение после инициализации. Это устраняет проблемы с состоянием, особенно в многопоточных системах (нет гонок данных, блокировок). Функции должны быть чистыми — без побочных эффектов, зависящими только от входных параметров.
+
+Функциональное программирование повышает устойчивость архитектуры к изменениям, но требует компромиссов (например, transactional memory для mutable частей). Event sourcing — пример: храним события (транзакции), а не состояние, и вычисляем его на лету для аудита или экономии памяти.
+
+Пример на C# (императивный vs функциональный подход):
+Императивный код (с mutable переменными):
+
+```
+csharp
+class ImperativeExample
+{
+    public static void Main()
+    {
+        int[] numbers = {1, 2, 3, 4, 5};
+        int sum = 0;
+        for (int i = 0; i < numbers.Length; i++)
+        {
+            sum += numbers[i] * numbers[i]; // Мутация sum
+        }
+        Console.WriteLine("Сумма квадратов: " + sum);
+    }
+}
+```
+
+Функциональный подход (используем LINQ, immutable коллекции):
+
+```
+csharp
+using System.Collections.Immutable;
+using System.Linq;
+
+class FunctionalExample
+{
+    public static void Main()
+    {
+        var numbers = ImmutableList.Create(1, 2, 3, 4, 5); // Immutable коллекция
+        var sumOfSquares = numbers.Select(x => x * x).Sum(); // Чистая функция, без мутаций
+        Console.WriteLine("Сумма квадратов: " + sumOfSquares);
+    }
+}
+```
+
+Здесь в функциональном варианте нет мутаций, всё вычисляется на лету. В большом проекте это упрощает отладку и параллелизм.
+
+### Глава 7: Принцип единственной ответственности (SRP)
+SRP гласит: модуль (класс) должен иметь одну и только одну причину для изменения, то есть отвечать перед одним "актором" (группой заинтересованных лиц). Это не значит "делать одну вещь" (это для функций), а о разделении по ответственности. Нарушение SRP приводит к непреднамеренному дублированию кода или конфликтам при слиянии (merge conflicts), когда изменения для одного актора ломают код для другого.
+
+Пример нарушения: класс Employee с методами calculatePay (для бухгалтерии), reportHours (для HR) и save (для админов БД). Изменение calculatePay может сломать reportHours.
+
+Решение: разделить на классы EmployeePayroll, EmployeeHours и EmployeePersistence, или использовать фасады для группировки.
+
+Пример на C# (нарушение SRP):
+
+```
+csharp
+class EmployeeBad
+{
+    public decimal CalculatePay() { /* Логика для бухгалтерии */ return 0; }
+    public int ReportHours() { /* Логика для HR */ return 0; }
+    public void Save() { /* Логика для БД */ }
+}
+```
+
+Исправленный вариант (с фасадом):
+
+```
+csharp
+class EmployeePayroll { public decimal CalculatePay() { return 0; } }
+class EmployeeHours { public int ReportHours() { return 0; } }
+class EmployeePersistence { public void Save() { } }
+
+class EmployeeFacade // Фасад для объединения
+{
+    private EmployeePayroll payroll = new EmployeePayroll();
+    private EmployeeHours hours = new EmployeeHours();
+    private EmployeePersistence persistence = new EmployeePersistence();
+
+    public decimal CalculatePay() { return payroll.CalculatePay(); }
+    public int ReportHours() { return hours.ReportHours(); }
+    public void Save() { persistence.Save(); }
+}
+```
+
+Теперь изменения в payroll не затрагивают hours. Это отражает закон Конвея: структура кода повторяет структуру команды.
+
+### Глава 8: Принцип открытости/закрытости (OCP)
+OCP: модуль должен быть открыт для расширения (добавления нового поведения), но закрыт для модификации (изменения существующего кода). Достигается через абстракции и полиморфизм: низкоуровневые детали зависят от высокоуровневых абстракций.
+
+Пример: финансовый отчёт. Без OCP добавление принтерного вывода меняет весь код. С OCP — используем интерфейсы и наследование.
+
+Управление зависимостями: в UML стрелки должны указывать на абстрактные элементы. Это "сокрытие информации" — изменения не расползаются.
+
+Пример на C# (без OCP):
+
+```
+csharp
+class FinancialReport
+{
+    public void Generate() { /* Генерация отчета на экран */ Console.WriteLine("Report"); }
+}
+```
+
+Добавление принтерного вывода требует изменения Generate().
+
+С OCP:
+
+```
+csharp
+abstract class ReportGenerator
+{
+    public abstract void Generate(); // Закрыт для модификации, открыт для расширения
+}
+
+class ScreenReport : ReportGenerator
+{
+    public override void Generate() { Console.WriteLine("Screen Report"); }
+}
+
+class PrinterReport : ReportGenerator
+{
+    public override void Generate() { Console.WriteLine("Printer Report"); }
+}
+```
+
+### Глава 9: Принцип подстановки Лисков (LSP)
+LSP: подтипы должны быть взаимозаменяемыми с базовыми типами без изменения поведения программы. Классика — квадрат/прямоугольник: квадрат наследует прямоугольник, но изменение ширины/высоты независимо ломает квадрат (нарушение ожиданий).
+
+В архитектуре: если сервисы не взаимозаменяемы (разные REST API), код пачкается if-ами. Решение: строгие контракты.
+
+Пример на C# (нарушение LSP):
+
+```
+csharp
+class Rectangle
+{
+    public virtual int Width { get; set; }
+    public virtual int Height { get; set; }
+    public int Area() { return Width * Height; }
+}
+
+class Square : Rectangle // Квадрат наследует прямоугольник
+{
+    public override int Width { set { base.Width = value; base.Height = value; } } // Ломает независимость
+    public override int Height { set { base.Width = value; base.Height = value; } }
+}
+
+class Test
+{
+    public static void Main()
+    {
+        Rectangle r = new Square();
+        r.Width = 5; r.Height = 10; // Ожидаем Area=50, но для квадрата Area=100
+        Console.WriteLine(r.Area()); // Нарушение
+    }
+}
+```
+
+Решение: не наследовать квадрат от прямоугольника, использовать отдельный класс. В микросервисах LSP критично для совместимых API.
+
+### Глава 10: Принцип разделения интерфейсов (ISP)
+ISP: не завись от того, что не используешь. Интерфейсы должны быть мелкими, чтобы клиенты не зависели от ненужных методов. Изменение в неиспользуемом методе не должно требовать перекомпиляции.
+
+В статических языках (C#) это спасает от рекомпиляций. Связан с DIP, но для интерфейсов.
+
+Пример на C# (нарушение ISP):
+
+```
+csharp
+interface UserService
+{
+    void AddUser(); // Используется
+    void DeleteUser(); // Не используется
+    void UpdateUser(); // Не используется
+    // Ещё 7 методов, которые не нужны
+}
+
+class MyClient
+{
+    private UserService service; // Зависит от всего, даже неиспользуемого
+    public void Add() { service.AddUser(); }
+}
+```
+
+Решение: разбить на мелкие интерфейсы:
+
+```
+csharp
+interface IAddUserService { void AddUser(); }
+interface IDeleteUserService { void DeleteUser(); }
+
+class MyClient : IAddUserService // Только нужное
+{
+    public void AddUser() { /* Реализация */ }
+}
+```
+
+В больших системах ISP предотвращает "ненужные" рекомпиляции.
+
+В целом, SOLID — основа для масштабируемых систем. В проекте на C# я бы применил OCP для расширений, SRP для разделения зон ответственности. Теперь всё понятнее, надо внедрять в код.
